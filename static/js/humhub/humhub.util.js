@@ -150,7 +150,12 @@ humhub.module('util', function(module, require, $) {
             var extendableClass = options.init || function() {};
 
             if(options.name) {
-                Object.defineProperty(extendableClass, "name", { value: options.name});
+                try {
+                    Object.defineProperty(extendableClass, "name", { value: options.name});
+                } catch(e) {
+                    console.warn('Could not overwrite extendable name property', e);
+                }
+
             }
 
             extendableClass.extend = function(init, name) {
@@ -218,6 +223,21 @@ humhub.module('util', function(module, require, $) {
             }
             return val.indexOf(suffix, val.length - suffix.length) !== -1;
         },
+        capitalizeFirstLetter: function capitalizeFirstLetter(s) {
+            if(!s || !s.length) {
+                return s;
+            }
+
+            return s.charAt(0).toUpperCase() + s.slice(1);
+        },
+        lowerCaseFirstLetter: function capitalizeFirstLetter(s) {
+            if(!s || !s.length) {
+                return s;
+            }
+
+            return s.charAt(0).toLowerCase() + s.slice(1);
+        },
+
         /* @deptecated use encode */
         htmlEncode: function(value) {
             return $('<div/>').text(value).html();

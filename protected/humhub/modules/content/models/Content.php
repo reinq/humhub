@@ -10,20 +10,23 @@ namespace humhub\modules\content\models;
 
 use humhub\components\behaviors\GUID;
 use humhub\components\behaviors\PolymorphicRelation;
-use humhub\modules\content\components\ContentContainerModule;
-use humhub\modules\content\permissions\CreatePrivateContent;
-use humhub\modules\content\permissions\CreatePublicContent;
-use Yii;
-use humhub\modules\user\components\PermissionManager;
-use yii\base\Exception;
-use yii\base\InvalidParamException;
-use yii\helpers\Url;
-use humhub\modules\user\models\User;
-use humhub\modules\space\models\Space;
+use humhub\components\Module;
+use humhub\modules\admin\permissions\ManageUsers;
 use humhub\modules\content\components\ContentActiveRecord;
 use humhub\modules\content\components\ContentContainerActiveRecord;
+use humhub\modules\content\components\ContentContainerModule;
+use humhub\modules\content\interfaces\ContentOwner;
+use humhub\modules\content\permissions\CreatePrivateContent;
+use humhub\modules\content\permissions\CreatePublicContent;
 use humhub\modules\content\permissions\ManageContent;
-use yii\rbac\Permission;
+use humhub\modules\space\models\Space;
+use humhub\modules\user\components\PermissionManager;
+use humhub\modules\user\models\User;
+use Yii;
+use yii\base\Exception;
+use yii\base\InvalidArgumentException;
+use yii\db\IntegrityException;
+use yii\helpers\Url;
 
 /**
  * This is the model class for table "content".
@@ -47,11 +50,12 @@ use yii\rbac\Permission;
  * @property integer $contentcontainer_id;
  * @property ContentContainerActiveRecord $container
  * @property User $createdBy
+ * @property User $updatedBy
  * @mixin PolymorphicRelation
  * @mixin GUID
  * @since 0.5
  */
-class Content extends ContentDeprecated implements Movable
+class Content extends ContentDeprecated implements Movable, ContentOwner
 {
 
     /**
@@ -98,7 +102,7 @@ class Content extends ContentDeprecated implements Movable
                 'mustBeInstanceOf' => [ContentActiveRecord::class],
             ],
             [
-                'class' => GUID::className(),
+                'class' => GUID::class,
             ],
         ];
     }
@@ -193,7 +197,7 @@ class Content extends ContentDeprecated implements Movable
             $this->notifyContentCreated();
         }
 
-        if($this->container) {
+        if ($this->container) {
             Yii::$app->live->send(new \humhub\modules\content\live\NewContent([
                 'sguid' => ($this->container instanceof Space) ? $this->container->guid : null,
                 'uguid' => ($this->container instanceof User) ? $this->container->guid : null,
@@ -215,7 +219,7 @@ class Content extends ContentDeprecated implements Movable
      */
     private function isMuted()
     {
-        return $this->getPolymorphicRelation()->silentContentCreation || $this->muteDefaultSocialActivities || !$this->container;
+        return $this->getPolymorphicRelation()->silentContentCreation || $this->getModel()->silentContentCreation || !$this->container;
     }
 
     /**
@@ -224,12 +228,21 @@ class Content extends ContentDeprecated implements Movable
     private function notifyContentCreated()
     {
         $contentSource = $this->getPolymorphicRelation();
-        $notifyUsers = array_merge($this->notifyUsersOfNewContent, Yii::$app->notification->getFollowers($this));
+
+        $userQuery = Yii::$app->notification->getFollowers($this);
+        if (count($this->notifyUsersOfNewContent) != 0) {
+            // Add manually notified users
+            $userQuery->union(
+                User::find()->active()->where(['IN', 'user.id', array_map(function (User $user) {
+                    return $user->id;
+                }, $this->notifyUsersOfNewContent)])
+            );
+        }
 
         \humhub\modules\content\notifications\ContentCreated::instance()
             ->from($this->user)
             ->about($contentSource)
-            ->sendBulk($notifyUsers);
+            ->sendBulk($userQuery);
 
         \humhub\modules\content\activities\ContentCreated::instance()
             ->from($this->user)
@@ -322,7 +335,7 @@ class Content extends ContentDeprecated implements Movable
             return false;
         }
 
-        return $this->getContainer()->permissionManager->can(new ManageContent());
+        return $this->getContainer()->permissionManager->can(ManageContent::class);
     }
 
     /**
@@ -381,17 +394,20 @@ class Content extends ContentDeprecated implements Movable
 
     /**
      * {@inheritdoc}
+     * @throws \Throwable
      */
     public function move(ContentContainerActiveRecord $container = null, $force = false)
     {
-        $move = $force || $this->canMove($container, $force);
+        $move = ($force) ? true : $this->canMove($container);
 
-        if($move === true) {
-            static::getDb()->transaction(function($db) use ($container) {
+        if ($move === true) {
+            static::getDb()->transaction(function ($db) use ($container) {
                 $this->setContainer($container);
-                if($this->save()) {
+                if ($this->save()) {
                     ContentTag::deleteContentRelations($this, false);
-                    $this->getModel()->afterMove();
+                    $model = $this->getModel();
+                    $model->populateRelation('content', $this);
+                    $model->afterMove($container);
                 }
             });
         }
@@ -405,55 +421,84 @@ class Content extends ContentDeprecated implements Movable
     public function canMove(ContentContainerActiveRecord $container = null)
     {
         $model = $this->getModel();
-        $isContentOwner = $model->isOwner();
 
-        $canModelBeMoved = $model->canMove();
-        if($canModelBeMoved !== true) {
+        $canModelBeMoved = $this->isModelMovable($container);
+        if ($canModelBeMoved !== true) {
             return $canModelBeMoved;
         }
 
-        // Check for legacy modules
-        if(!$model->getModuleId()) {
-            return Yii::t('ContentModule.base', 'This content type can\'t be moved due to a missing module-id setting.');
+        if (!$container) {
+            return $this->checkMovePermission() ? true : Yii::t('ContentModule.base', 'You do not have the permission to move this content.');
         }
 
-        if(!$container) {
-            // The content type is movable and no container was provided
-            return true;
-        }
-
-        if($container->contentcontainer_id === $this->contentcontainer_id) {
+        if ($container->contentcontainer_id === $this->contentcontainer_id) {
             return Yii::t('ContentModule.base', 'The content can\'t be moved to its current space.');
         }
 
         // Check if the related module is installed on the target space
-        if(!$container->moduleManager->isEnabled($model->getModuleId())) {
+        if (!$container->moduleManager->isEnabled($model->getModuleId())) {
+            /* @var $module Module */
             $module = Yii::$app->getModule($model->getModuleId());
             $moduleName = ($module instanceof ContentContainerModule) ? $module->getContentContainerName($container) : $module->getName();
             return Yii::t('ContentModule.base', 'The module {moduleName} is not enabled on the selected target space.', ['moduleName' => $moduleName]);
         }
 
         // Check if the current user is allowed to move this content at all
-        if(!$isContentOwner && !$this->container->can(ManageContent::class)) {
+        if (!$this->checkMovePermission()) {
             return Yii::t('ContentModule.base', 'You do not have the permission to move this content.');
         }
 
         // Check if the current user is allowed to move this content to the given target space
-        if(!$isContentOwner && !$container->can(ManageContent::class)) {
+        if (!$this->checkMovePermission($container)) {
             return Yii::t('ContentModule.base', 'You do not have the permission to move this content to the given space.');
         }
 
         // Check if the content owner is allowed to create content on the target space
         $ownerPermissions = $container->getPermissionManager($this->createdBy);
-        if($this->isPrivate() && !$ownerPermissions->can(CreatePrivateContent::class)) {
+        if ($this->isPrivate() && !$ownerPermissions->can(CreatePrivateContent::class)) {
             return Yii::t('ContentModule.base', 'The author of this content is not allowed to create private content within the selected space.');
         }
 
-        if($this->isPublic() && !$ownerPermissions->can(CreatePublicContent::class)) {
+        if ($this->isPublic() && !$ownerPermissions->can(CreatePublicContent::class)) {
             return Yii::t('ContentModule.base', 'The author of this content is not allowed to create public content within the selected space.');
         }
 
         return true;
+    }
+
+    public function isModelMovable(ContentContainerActiveRecord $container = null)
+    {
+        $model = $this->getModel();
+        $canModelBeMoved = $model->canMove($container);
+        if ($canModelBeMoved !== true) {
+            return $canModelBeMoved;
+        }
+
+        // Check for legacy modules
+        if (!$model->getModuleId()) {
+            return Yii::t('ContentModule.base', 'This content type can\'t be moved due to a missing module-id setting.');
+        }
+
+        return true;
+    }
+
+    /**
+     * Checks if the current user has generally the permission to move this content on the given container or the current container if no container was provided.
+     *
+     * Note this function is only used for a general permission check use [[canMove()]] for a
+     *
+     * This is the case if:
+     *
+     * - The current user is the owner of this content
+     * @param ContentContainerActiveRecord|null $container
+     * @return bool determines if the current user is generally permitted to move content on the given container (or the related container if no container was provided)
+     */
+    public function checkMovePermission(ContentContainerActiveRecord $container = null)
+    {
+        if (!$container) {
+            $container = $this->container;
+        }
+        return $this->getModel()->isOwner() || Yii::$app->user->can(ManageUsers::class) || $container->can(ManageContent::class);
     }
 
     /**
@@ -461,7 +506,7 @@ class Content extends ContentDeprecated implements Movable
      */
     public function afterMove(ContentContainerActiveRecord $container = null)
     {
-        // TODO: Implement afterMove() method.
+        // Nothing to do
     }
 
     /**
@@ -486,14 +531,20 @@ class Content extends ContentDeprecated implements Movable
      * e.g. in case there is no wall entry available for this content.
      *
      * @since 0.11.1
+     * @param boolean $scheme
+     * @return string the URL
      */
-    public function getUrl()
+    public function getUrl($scheme = false)
     {
-        if (method_exists($this->getPolymorphicRelation(), 'getUrl')) {
-            return $this->getPolymorphicRelation()->getUrl();
+        try {
+            if (method_exists($this->getPolymorphicRelation(), 'getUrl')) {
+                return $this->getPolymorphicRelation()->getUrl($scheme);
+            }
+        } catch (IntegrityException $e) {
+            Yii::error($e->getMessage(), 'content');
         }
 
-        return Url::toRoute(['/content/perma', 'id' => $this->id]);
+        return Url::toRoute(['/content/perma', 'id' => $this->id], $scheme);
     }
 
     /**
@@ -539,7 +590,7 @@ class Content extends ContentDeprecated implements Movable
      */
     public function getContentContainer()
     {
-        return $this->hasOne(ContentContainer::className(), ['id' => 'contentcontainer_id']);
+        return $this->hasOne(ContentContainer::class, ['id' => 'contentcontainer_id']);
     }
 
     /**
@@ -550,7 +601,7 @@ class Content extends ContentDeprecated implements Movable
      */
     public function getTagRelations()
     {
-        return $this->hasMany(ContentTagRelation::className(), ['content_id' => 'id']);
+        return $this->hasMany(ContentTagRelation::class, ['content_id' => 'id']);
     }
 
     /**
@@ -559,9 +610,9 @@ class Content extends ContentDeprecated implements Movable
      * @since 1.2.2
      * @return \yii\db\ActiveQuery
      */
-    public function getTags()
+    public function getTags($tagClass = ContentTag::class)
     {
-        return $this->hasMany(ContentTag::class, ['id' => 'tag_id'])->via('tagRelations');
+        return $this->hasMany($tagClass, ['id' => 'tag_id'])->via('tagRelations');
     }
 
     /**
@@ -574,7 +625,7 @@ class Content extends ContentDeprecated implements Movable
     public function addTag(ContentTag $tag)
     {
         if (!empty($tag->contentcontainer_id) && $tag->contentcontainer_id != $this->contentcontainer_id) {
-            throw new InvalidParamException(Yii::t('ContentModule.base', 'Content Tag with invalid contentcontainer_id assigned.'));
+            throw new InvalidArgumentException(Yii::t('ContentModule.base', 'Content Tag with invalid contentcontainer_id assigned.'));
         }
 
         if (ContentTagRelation::findBy($this, $tag)->count()) {
@@ -611,7 +662,7 @@ class Content extends ContentDeprecated implements Movable
      *  - The user meets the additional condition implemented by the model records class own `canEdit()` function.
      *
      * @since 1.1
-     * @param User $user
+     * @param User|integer $user user instance or user id
      * @return bool can edit this content
      */
     public function canEdit($user = null)
@@ -622,6 +673,8 @@ class Content extends ContentDeprecated implements Movable
 
         if ($user === null) {
             $user = Yii::$app->user->getIdentity();
+        } else if (!($user instanceof User)) {
+            $user = User::findOne(['id' => $user]);
         }
 
         // Only owner can edit his content
@@ -679,13 +732,15 @@ class Content extends ContentDeprecated implements Movable
      * Checks if user can view this content.
      *
      * @since 1.1
-     * @param User $user
+     * @param User|integer $user
      * @return boolean can view this content
      */
     public function canView($user = null)
     {
         if (!$user && !Yii::$app->user->isGuest) {
             $user = Yii::$app->user->getIdentity();
+        } else if (!$user instanceof User) {
+            $user = User::findOne(['id' => $user]);
         }
 
         // User cann access own content
@@ -741,5 +796,29 @@ class Content extends ContentDeprecated implements Movable
     public function updateStreamSortTime()
     {
         $this->updateAttributes(['stream_sort_date' => new \yii\db\Expression('NOW()')]);
+    }
+
+    /**
+     * @returns \humhub\modules\content\models\Content content instance of this content owner
+     */
+    public function getContent()
+    {
+        return $this;
+    }
+
+    /**
+     * @returns string name of the content like 'comment', 'post'
+     */
+    public function getContentName()
+    {
+        return $this->getModel()->getContentName();
+    }
+
+    /**
+     * @returns string short content description
+     */
+    public function getContentDescription()
+    {
+        return $this->getModel()->getContentDescription();
     }
 }

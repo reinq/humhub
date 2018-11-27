@@ -26,6 +26,8 @@ use yii\db\Expression;
  * It show the space itself and handles all related tasks like following or
  * memberships.
  *
+ * @property-read Space $contentContainer
+ *
  * @author Luke
  * @package humhub.modules_core.space.controllers
  * @since 0.5
@@ -40,8 +42,8 @@ class SpaceController extends ContentContainerController
     {
         return [
             'acl' => [
-                'class' => AccessControl::className(),
-                'guestAllowedActions' => ['index', 'stream']
+                'class' => AccessControl::class,
+                'guestAllowedActions' => ['index', 'home', 'stream']
             ]
         ];
     }
@@ -53,7 +55,7 @@ class SpaceController extends ContentContainerController
     {
         return [
             'stream' => [
-                'class' => ContentContainerStream::className(),
+                'class' => ContentContainerStream::class,
                 'contentContainer' => $this->contentContainer
             ],
         ];
@@ -61,6 +63,7 @@ class SpaceController extends ContentContainerController
 
     /**
      * Generic Start Action for Profile
+     * @throws \yii\base\InvalidConfigException
      */
     public function actionIndex()
     {
@@ -88,7 +91,8 @@ class SpaceController extends ContentContainerController
     /**
      * Default space homepage
      *
-     * @return type
+     * @return string the rendering result.
+     * @throws \yii\base\InvalidConfigException
      */
     public function actionHome()
     {
@@ -123,8 +127,7 @@ class SpaceController extends ContentContainerController
         }
 
         if (Yii::$app->request->isAjax) {
-            Yii::$app->response->format = 'json';
-            return ['success' => $success];
+            return $this->asJson(['success' => $success]);
         }
 
         return $this->redirect($space->getUrl());
@@ -141,8 +144,7 @@ class SpaceController extends ContentContainerController
         $success = $space->unfollow();
 
         if (Yii::$app->request->isAjax) {
-            Yii::$app->response->format = 'json';
-            return ['success' => $success];
+            return $this->asJson(['success' => $success]);
         }
 
         return $this->redirect($space->getUrl());
@@ -154,7 +156,7 @@ class SpaceController extends ContentContainerController
     public function actionFollowerList()
     {
         $query = User::find();
-        $query->leftJoin('user_follow', 'user.id=user_follow.user_id AND object_model=:userClass AND user_follow.object_id=:spaceId', [':userClass' => Space::className(), ':spaceId' => $this->getSpace()->id]);
+        $query->leftJoin('user_follow', 'user.id=user_follow.user_id AND object_model=:userClass AND user_follow.object_id=:spaceId', [':userClass' => Space::class, ':spaceId' => $this->getSpace()->id]);
         $query->orderBy(['user_follow.id' => SORT_DESC]);
         $query->andWhere(['IS NOT', 'user_follow.id', new Expression('NULL')]);
         $query->visible();

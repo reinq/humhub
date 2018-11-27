@@ -9,6 +9,7 @@
 namespace humhub\modules\ui\view\components;
 
 use humhub\assets\AppAsset;
+use humhub\libs\BaseSettingsManager;
 use humhub\modules\ui\view\helpers\ThemeHelper;
 use Yii;
 use yii\base\Theme as BaseTheme;
@@ -99,17 +100,24 @@ class Theme extends BaseTheme
 
     /**
      * Registers theme css and resources to the view
+     * @param bool $includeParents also register parent themes
      */
-    public function register()
+    public function register($includeParents = true)
     {
-        // Register parent themes first
-        foreach (array_reverse($this->getParents()) as $parent) {
-            /** @var Theme $parent */
-            $parent->register();
+        if ($includeParents) {
+            foreach (array_reverse($this->getParents()) as $parent) {
+                /** @var Theme $parent */
+                $parent->register(false);
+            }
         }
 
-        Yii::$app->view->registerCssFile($this->getBaseUrl() . '/css/theme.css', ['depends' => AppAsset::class]);
+        if (file_exists($this->getBasePath() . '/css/theme.css')) {
+            $mtime = filemtime($this->getBasePath() . '/css/theme.css');
+            Yii::$app->view->registerCssFile($this->getBaseUrl() . '/css/theme.css?v=' . $mtime, ['depends' => AppAsset::class]);
+        }
+
     }
+
 
     /**
      * Activate this theme
@@ -119,6 +127,17 @@ class Theme extends BaseTheme
         $this->publishResources(true);
         $this->variables->flushCache();
         Yii::$app->settings->set('theme', $this->getBasePath());
+        Yii::$app->settings->delete('themeParents');
+    }
+
+    /**
+     * Checks whether the Theme is currently active.
+     *
+     * @return boolean
+     */
+    public function isActive()
+    {
+        return ($this->name === Yii::$app->view->theme->name);
     }
 
     /**
@@ -198,12 +217,60 @@ class Theme extends BaseTheme
      */
     public function getParents()
     {
+        if ($this->parents !== null) {
+            return $this->parents;
+        }
+
+        if ($this->isActive() && BaseSettingsManager::isDatabaseInstalled()) {
+            $this->parents = static::getActiveParents();
+        }
+
         if ($this->parents === null) {
             $this->parents = ThemeHelper::getThemeTree($this, false);
+
+            if ($this->isActive()) {
+                // Store parent path of currently active theme as settings
+                // This avoids theme paths lookups
+                $parentPaths = [];
+                foreach ($this->parents as $theme) {
+                    $parentPaths[] = $theme->getBasePath();
+                }
+
+                if (BaseSettingsManager::isDatabaseInstalled()) {
+                    Yii::$app->settings->setSerialized('themeParents', $parentPaths);
+                }
+            }
+
         }
 
         return $this->parents;
     }
 
+    /**
+     * Returns the parent themes of the currently active theme.
+     * These parents are stored in the setting variable "themeParents" for faster lookup.
+     *
+     * @return Theme[]|null the themes or null
+     */
+    protected static function getActiveParents()
+    {
+        $parentPaths = Yii::$app->settings->getSerialized('themeParents');
+
+        if (!is_array($parentPaths)) {
+            return null;
+        }
+
+        $parents = [];
+        foreach ($parentPaths as $parentPath) {
+            $theme = ThemeHelper::getThemeByPath($parentPath);
+            if ($theme === null) {
+                Yii::$app->settings->delete('themeParents');
+                Yii::error('Could not load stored theme parent! - Deleted parent path.', 'ui');
+                return null;
+            }
+            $parents[] = $theme;
+        }
+        return $parents;
+    }
 
 }

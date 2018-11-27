@@ -11,7 +11,7 @@ namespace humhub\modules\content\components;
 use humhub\modules\content\models\Movable;
 use humhub\modules\topic\models\Topic;
 use humhub\modules\topic\widgets\TopicLabel;
-use humhub\widgets\Link;
+use humhub\modules\user\behaviors\Followable;
 use humhub\modules\user\models\User;
 use Yii;
 use yii\base\Exception;
@@ -22,7 +22,6 @@ use humhub\modules\content\permissions\ManageContent;
 use humhub\components\ActiveRecord;
 use humhub\modules\content\models\Content;
 use humhub\modules\content\interfaces\ContentOwner;
-use yii\helpers\Html;
 
 /**
  * ContentActiveRecord is the base ActiveRecord [[\yii\db\ActiveRecord]] for Content.
@@ -51,7 +50,7 @@ use yii\helpers\Html;
  * Note: If the underlying Content record cannot be saved or validated an Exception will thrown.
  *
  * @property Content $content
- * @mixin \humhub\modules\user\behaviors\Followable
+ * @mixin Followable
  * @property User $createdBy
  * @author Luke
  */
@@ -138,7 +137,7 @@ class ContentActiveRecord extends ActiveRecord implements ContentOwner, Movable
      * `$model = new MyContent($space1, ['myField' => 'value']);`
      *
      * @param array|ContentContainerActiveRecord $contentContainer either the configuration or contentcontainer
-     * @param int $visibility
+     * @param int|array $visibility
      * @param array $config
      */
     public function __construct($contentContainer = [], $visibility = null, $config = [])
@@ -164,7 +163,7 @@ class ContentActiveRecord extends ActiveRecord implements ContentOwner, Movable
     public function init()
     {
         parent::init();
-        $this->attachBehavior('FollowableBehavior', \humhub\modules\user\behaviors\Followable::className());
+        $this->attachBehavior('FollowableBehavior', Followable::class);
     }
 
     /**
@@ -201,7 +200,7 @@ class ContentActiveRecord extends ActiveRecord implements ContentOwner, Movable
      */
     public function getContentName()
     {
-        return $this->className();
+        return static::class;
     }
 
     /**
@@ -225,7 +224,7 @@ class ContentActiveRecord extends ActiveRecord implements ContentOwner, Movable
      * }
      * ```
      *
-     * @param array $result
+     * @param array $labels
      * @param bool $includeContentName
      * @return Label[]|\string[] content labels used for example in wallentrywidget
      */
@@ -248,6 +247,7 @@ class ContentActiveRecord extends ActiveRecord implements ContentOwner, Movable
         }
 
         foreach (Topic::findByContent($this->content)->all() as $topic) {
+            /** @var $topic Topic */
             $labels[] = TopicLabel::forTopic($topic);
         }
 
@@ -272,7 +272,7 @@ class ContentActiveRecord extends ActiveRecord implements ContentOwner, Movable
      *
      * @since 1.2.1
      * @see ContentActiveRecord::$managePermission
-     * @return null|object
+     * @return null|object|string
      */
     public function getManagePermission()
     {
@@ -392,8 +392,7 @@ class ContentActiveRecord extends ActiveRecord implements ContentOwner, Movable
      */
     public function afterDelete()
     {
-
-        $content = Content::findOne(['object_id' => $this->id, 'object_model' => static::getObjectModel()]);
+        $content = Content::findOne(['object_id' => $this->getPrimaryKey(), 'object_model' => static::getObjectModel()]);
         if ($content !== null) {
             $content->delete();
         }
@@ -434,7 +433,7 @@ class ContentActiveRecord extends ActiveRecord implements ContentOwner, Movable
      */
     public function getContent()
     {
-        return $this->hasOne(Content::className(), ['object_id' => 'id'])
+        return $this->hasOne(Content::class, ['object_id' => 'id'])
             ->andWhere(['content.object_model' => static::getObjectModel()]);
     }
 
@@ -492,5 +491,3 @@ class ContentActiveRecord extends ActiveRecord implements ContentOwner, Movable
      */
     public function afterMove(ContentContainerActiveRecord $container = null) {}
 }
-
-?>

@@ -24,7 +24,7 @@ humhub.module('client', function (module, require, $) {
                 dataType = 'json';
             } else if (responseType && responseType.indexOf('html') > -1) {
                 dataType = 'html';
-            } else {
+            } else if(!this.isAbort()){
                 console.error('unable to determine dataType from response, this may cause problems.');
             }
         }
@@ -37,6 +37,10 @@ humhub.module('client', function (module, require, $) {
             this[dataType] = this.response;
         }
     };
+
+    Response.prototype.isAbort = function () {
+        return this.textStatus == "abort";
+    }
     
     Response.prototype.header = function (key) {
         return this.xhr.getResponseHeader(key);
@@ -187,7 +191,6 @@ humhub.module('client', function (module, require, $) {
     };
 
     var ajax = function (url, cfg, originalEvent) {
-
         // support for ajax(url, event) and ajax(path, successhandler);
         if (cfg instanceof $.Event) {
             originalEvent = cfg;
@@ -207,9 +210,9 @@ humhub.module('client', function (module, require, $) {
             var errorHandler = cfg.error;
             var error = function (xhr, textStatus, errorThrown) {
                 var response = new Response(xhr, url, textStatus, cfg.dataType).setError(errorThrown);
-
                 if (response.status == 302) {
                     _redirect(xhr);
+                    return;
                 }
 
                 if (errorHandler && object.isFunction(errorHandler)) {

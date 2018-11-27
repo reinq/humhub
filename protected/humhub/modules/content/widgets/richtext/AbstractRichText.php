@@ -13,7 +13,7 @@ use humhub\components\Event;
 use humhub\modules\content\components\ContentActiveRecord;
 use humhub\modules\content\components\ContentAddonActiveRecord;
 use humhub\widgets\JsWidget;
-use yii\base\InvalidParamException;
+use yii\base\InvalidArgumentException;
 
 /**
  * AbstractRichText serves as the base class for rich text implementations.
@@ -53,6 +53,8 @@ use yii\base\InvalidParamException;
  */
 abstract class AbstractRichText extends JsWidget
 {
+    const PRESET_DOCUMENT = 'document';
+
     /**
      * @event Event an event raised after the post-process phase of the rich text.
      */
@@ -144,7 +146,7 @@ abstract class AbstractRichText extends JsWidget
     public function init() {
         parent::init();
         if(!static::$editorClass || ! static::$processorClass) {
-            throw new InvalidParamException('No editor or processor class set for rich text '.static::class);
+            throw new InvalidArgumentException('No editor or processor class set for rich text '.static::class);
         }
     }
 

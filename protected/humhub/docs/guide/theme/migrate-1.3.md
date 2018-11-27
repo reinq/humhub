@@ -13,27 +13,10 @@ Please remove following lines from the file `yourtheme/views/layouts/head.php`:
 
 ## Parent themes
 
-To ease theme creation and later updates you can now specify a theme from which your theme is derived.
+Please refer to the  [Parent themes section](css.md#parent-themes) for more information about the new `@baseTheme` variable.
+Using this technique will ease the update process of your custom theme.
 
-You can add the parent theme by adding following line to your `less/variables.less` file.
-
-For themes based on the standard community edition theme:
-
-```less
-@baseTheme: "HumHub";
-```
-
-For Enterprise Edition based themes:
-
-```less
-@baseTheme: "enterprise";
-```
-
-After adding the line you can delete all unmodified files from your themes `/views` folder.
-The views will be automatically loaded from the specified base theme.
-
-
-## Space & Profile Layouts
+## Space & Profile Layouts and header
 
 The sidebar handling of the content container layouts has changed.
 
@@ -47,7 +30,11 @@ Please check following view files for changes:
 Also check the deprecation of `humhub\modules\activity\widgets\Stream` in case you've overwritten
 the space or dashboard layout.
 
-> Please note the deprecation of 
+Also the space/profile header files (Statistic section) has slightly changed.
+
+Please check following view files for changes:
+- `/protected/humhub/modules/user/widgets/views/profileHeader.php`
+- `/protected/humhub/modules/space/widgets/views/header.php`
 
 
 ## New Richtext

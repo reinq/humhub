@@ -8,6 +8,9 @@
 
 namespace humhub\modules\space\modules\manage\controllers;
 
+use humhub\modules\content\components\ContentContainerControllerAccess;
+use Yii;
+use yii\web\HttpException;
 use humhub\modules\space\models\Space;
 use humhub\modules\space\modules\manage\components\Controller;
 use humhub\modules\space\modules\manage\models\MembershipSearch;
@@ -15,8 +18,6 @@ use humhub\modules\space\notifications\ChangedRolesMembership;
 use humhub\modules\user\models\User;
 use humhub\modules\space\models\Membership;
 use humhub\modules\space\modules\manage\models\ChangeOwnerForm;
-use Yii;
-use yii\web\HttpException;
 
 /**
  * Member Controller
@@ -28,14 +29,13 @@ class MemberController extends Controller
     /**
      * @inheritdoc
      */
-    public function getAccessRules()
-    {
-        $result = parent::getAccessRules();
-        $result[] = [
-            'userGroup' => [Space::USERGROUP_OWNER], 'actions' => ['change-owner']
+    protected function getAccessRules() {
+        return [
+            ['login'],
+            [ContentContainerControllerAccess::RULE_USER_GROUP_ONLY => [Space::USERGROUP_ADMIN], 'actions' => [
+                'index', 'pending-invitations', 'pending-approvals', 'reject-applicant', 'approve-applicant', 'remove']],
+            [ContentContainerControllerAccess::RULE_USER_GROUP_ONLY => [Space::USERGROUP_OWNER], 'actions' => ['change-owner']]
         ];
-
-        return $result;
     }
 
     /**
@@ -57,7 +57,7 @@ class MemberController extends Controller
                 throw new HttpException(404, 'Could not find membership!');
             }
 
-            if ($membership->load(Yii::$app->request->post()) && $membership->validate() && $membership->save()) {
+            if ($membership->load(Yii::$app->request->post()) && $membership->save()) {
 
                 ChangedRolesMembership::instance()
                     ->about($membership)
@@ -66,6 +66,7 @@ class MemberController extends Controller
 
                 return Yii::$app->request->post();
             }
+
             return $membership->getErrors();
         }
 
@@ -186,7 +187,6 @@ class MemberController extends Controller
 
         if ($model->load(Yii::$app->request->post()) && $model->validate()) {
             $space->setSpaceOwner($model->ownerId);
-
             return $this->redirect($space->getUrl());
         }
 

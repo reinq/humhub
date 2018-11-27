@@ -4,7 +4,8 @@
  * Application configuration for unit tests
  */
 $testConfig = [
-
+    'class' => 'humhub\components\Application',
+    'timeZone' => 'UTC',
     'components' => [
         'request' => [
             'cookieValidationKey' => 'test'

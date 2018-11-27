@@ -135,8 +135,6 @@ class ModuleController extends \yii\console\Controller
 
     /**
      * Updates all modules to the latest available version.
-     *
-     * @param array $args
      */
     public function actionUpdateAll()
     {
@@ -146,9 +144,9 @@ class ModuleController extends \yii\console\Controller
         foreach ($installedModules as $moduleId => $className) {
             try {
                 $this->actionUpdate($moduleId);
-            } catch (\yii\base\InvalidParamException $ex) {
+            } catch (\yii\base\InvalidArgumentException $ex) {
                 print "Module " . $moduleId . " - Error: " . $ex->getMessage() . "\n";
-            } catch (Exception $ex) {
+            } catch (\Exception $ex) {
                 print "Module " . $moduleId . " - Error: " . $ex->getMessage() . "\n";
             }
         }
@@ -165,7 +163,7 @@ class ModuleController extends \yii\console\Controller
                     $onlineModules = new OnlineModuleManager();
                     $onlineModules->install($moduleId);
                     print "Reinstalled: " . $moduleId . "\n";
-                } catch (Exception $ex) {
+                } catch (\Exception $ex) {
 
                 }
             }

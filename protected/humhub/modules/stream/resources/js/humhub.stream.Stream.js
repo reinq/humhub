@@ -5,7 +5,7 @@
  *
  */
 
-/**do
+/**
  * Core module for managing Streams and StreamItems
  * @type Function
  */
@@ -134,9 +134,11 @@ humhub.module('stream.Stream', function (module, require, $) {
         var contentId = this.$.data(DATA_STREAM_CONTENTID);
         this.$.data(DATA_STREAM_CONTENTID, null);
 
-        return new StreamRequest(this, {
+        this.state.firstRequest = new StreamRequest(this, {
             contentId: contentId,
-            limit: this.options.initLoadCount}).load();
+            limit: this.options.initLoadCount});
+
+        return this.state.firstRequest.load();
     };
 
     Stream.prototype.handleResponse = function(request) {
@@ -278,7 +280,7 @@ humhub.module('stream.Stream', function (module, require, $) {
         }
 
         return promise.then(function () {
-            that.$.trigger('humhub:stream:afterAddEntries', [request.response, request, $result]);
+            that.trigger('humhub:stream:afterAddEntries', [request.response, request, $result]);
             return request;
         });
     };
@@ -413,7 +415,11 @@ humhub.module('stream.Stream', function (module, require, $) {
 
         this.$.find('.streamMessage').remove();
 
-        if (!hasEntries) {
+        if(!hasEntries && this.isShowSingleEntry()) {
+            // e.g. after content deletion in single entry stream
+            var that = this;
+            setTimeout(function() {that.init()}, 50);
+        } else if (!hasEntries) {
             this.onEmptyStream();
         } else if (this.isShowSingleEntry()) {
             this.onSingleEntryStream();
@@ -424,16 +430,18 @@ humhub.module('stream.Stream', function (module, require, $) {
 
     Stream.prototype.hasFilter = function (filter) {
         return this.filter.hasFilter(filter);
-    }
+    };
 
     Stream.prototype.onEmptyStream = function () {
         var hasActiveFilters = this.hasActiveFilters();
         this.$.find('.streamMessage').remove();
 
-        this.$content.append(string.template(this.static('templates').streamMessage, {
-            message: (hasActiveFilters) ? this.options.streamEmptyFilterMessage : this.options.streamEmptyMessage,
-            cssClass: (hasActiveFilters) ? this.options.streamEmptyFilterClass : this.options.streamEmptyClass,
-        }));
+        if(!this.isShowSingleEntry()) {
+            this.$content.append(string.template(this.static('templates').streamMessage, {
+                message: (hasActiveFilters) ? this.options.streamEmptyFilterMessage : this.options.streamEmptyMessage,
+                cssClass: (hasActiveFilters) ? this.options.streamEmptyFilterClass : this.options.streamEmptyClass,
+            }));
+        }
 
         if(!hasActiveFilters) {
             this.filter.hide();

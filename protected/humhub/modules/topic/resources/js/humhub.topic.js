@@ -12,8 +12,16 @@ humhub.module('topic', function (module, require, $) {
     var string = require('util').string;
     var client = require('client');
     var loader = require('ui.loader');
+    var Widget = require('ui.widget').Widget;
 
     var addTopic = function (evt) {
+        var streamFilter = Widget.instance($('#wall-stream-filter-nav'));
+
+        if(!streamFilter || !streamFilter.getFilterById('topic') && evt.$trigger.data('topic-url')) {
+            client.pjax.redirect(evt.$trigger.data('topic-url'));
+            return;
+        }
+
         var topicId = evt.$trigger.data('topic-id');
 
         if (topics[topicId]) {

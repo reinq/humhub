@@ -9,7 +9,7 @@
 namespace humhub\libs;
 
 use Yii;
-use yii\base\InvalidParamException;
+use yii\base\InvalidArgumentException;
 use humhub\modules\content\components\ContentContainerActiveRecord;
 use humhub\modules\user\models\User;
 use humhub\modules\space\models\Space;
@@ -24,8 +24,8 @@ class Html extends \yii\bootstrap\Html
 {
 
     /**
-     * Save button is a shortcut for the default submit button 
-     * 
+     * Save button is a shortcut for the default submit button
+     *
      * @since 1.2
      * @see submitButton
      * @param string $label
@@ -48,7 +48,7 @@ class Html extends \yii\bootstrap\Html
 
     /**
      * Renders a back button
-     * 
+     *
      * @since 1.2
      * @see Html::a
      * @param string $text
@@ -87,7 +87,7 @@ class Html extends \yii\bootstrap\Html
 
     /**
      * Generates an link tag to a content container
-     * 
+     *
      * @since 1.2
      * @todo More flexible implemenation using interfaces
      * @param ContentContainerActiveRecord $container the content container
@@ -96,6 +96,8 @@ class Html extends \yii\bootstrap\Html
      */
     public static function containerLink(ContentContainerActiveRecord $container, $options = [])
     {
+        $options['data-contentcontainer-id'] = $container->contentcontainer_id;
+
         if ($container instanceof Space) {
             return static::a(static::encode($container->name), $container->getUrl(), $options);
         } elseif ($container instanceof User) {
@@ -104,7 +106,7 @@ class Html extends \yii\bootstrap\Html
             }
             return static::a(static::encode($container->displayName), $container->getUrl(), $options);
         } else {
-            throw new InvalidParamException('Content container type not supported!');
+            throw new InvalidArgumentException('Content container type not supported!');
         }
     }
 }

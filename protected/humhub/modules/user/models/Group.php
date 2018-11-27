@@ -9,10 +9,10 @@
 namespace humhub\modules\user\models;
 
 use humhub\components\ActiveRecord;
-use humhub\modules\admin\notifications\ExcludeGroupNotification;
 use humhub\modules\admin\notifications\IncludeGroupNotification;
 use humhub\modules\directory\widgets\GroupUsers;
 use humhub\modules\space\models\Space;
+use humhub\modules\user\components\ActiveQueryUser;
 use Yii;
 
 /**
@@ -29,6 +29,7 @@ use Yii;
  * @property integer $show_at_registration
  * @property string $updated_at
  * @property integer $updated_by
+ * @property integer $is_admin_group
  *
  * @property User[] $manager
  * @property Space|null $defaultSpace
@@ -124,7 +125,7 @@ class Group extends ActiveRecord
      */
     public function getManager()
     {
-        return $this->hasMany(User::className(), ['id' => 'user_id'])
+        return $this->hasMany(User::class, ['id' => 'user_id'])
             ->via('groupUsers', function ($query) {
                 $query->where(['is_group_manager' => '1']);
             });
@@ -142,6 +143,7 @@ class Group extends ActiveRecord
     /**
      * Returns the GroupUser relation for a given user.
      * @param User|string $user
+     *
      * @return GroupUser|null
      */
     public function getGroupUser($user)
@@ -156,13 +158,13 @@ class Group extends ActiveRecord
      */
     public function getGroupUsers()
     {
-        return $this->hasMany(GroupUser::className(), ['group_id' => 'id']);
+        return $this->hasMany(GroupUser::class, ['group_id' => 'id']);
     }
 
     /**
      * Returns all member user of this group as ActiveQuery
      *
-     * @return \humhub\modules\content\components\ActiveQueryContent
+     * @return ActiveQueryUser
      */
     public function getUsers()
     {
@@ -172,6 +174,7 @@ class Group extends ActiveRecord
         ]);
         $query->andWhere(['IS NOT', 'group_user.id', new \yii\db\Expression('NULL')]);
         $query->multiple = true;
+
         return $query;
     }
 
@@ -204,10 +207,11 @@ class Group extends ActiveRecord
     }
 
     /**
-     * Adds a user to the group. This function will skip if the user is already
-     * a member of the group.
+     * Adds a user to the group. This function will skip if the user is already a member of the group.
+     *
      * @param User $user user id or user model
-     * @param bool $isManager
+     * @param bool $isManager mark as group manager
+     * @throws \yii\base\InvalidConfigException
      */
     public function addUser($user, $isManager = false)
     {
@@ -243,7 +247,11 @@ class Group extends ActiveRecord
             return false;
         }
 
-        return $groupUser->delete();
+        if ($groupUser !== false) {
+            return $groupUser->delete();
+        }
+
+        return false;
     }
 
     /**
@@ -251,7 +259,7 @@ class Group extends ActiveRecord
      */
     public function getSpace()
     {
-        return $this->hasOne(Space::className(), ['id' => 'space_id']);
+        return $this->hasOne(Space::class, ['id' => 'space_id']);
     }
 
     /**
@@ -283,11 +291,11 @@ class Group extends ActiveRecord
 
             $html = Yii::t('UserModule.adminUserApprovalMail', 'Hello {displayName},',
                     ['displayName' => $manager->displayName]) . "<br><br>\n\n" .
-                    Yii::t('UserModule.adminUserApprovalMail', 'a new user {displayName} needs approval.',
-                        ['displayName' => $user->displayName]) . "<br><br>\n\n" .
-                    Yii::t('UserModule.adminUserApprovalMail', 'Please click on the link below to view request:') .
-                    "<br>\n\n" .
-                    \yii\helpers\Html::a($approvalUrl, $approvalUrl) . "<br/> <br/>\n";
+                Yii::t('UserModule.adminUserApprovalMail', 'a new user {displayName} needs approval.',
+                    ['displayName' => $user->displayName]) . "<br><br>\n\n" .
+                Yii::t('UserModule.adminUserApprovalMail', 'Please click on the link below to view request:') .
+                "<br>\n\n" .
+                \yii\helpers\Html::a($approvalUrl, $approvalUrl) . "<br/> <br/>\n";
 
             $mail = Yii::$app->mailer->compose(['html' => '@humhub/views/mail/TextOnly'], [
                 'message' => $html,

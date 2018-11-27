@@ -10,6 +10,8 @@ namespace humhub\modules\space\models;
 
 use humhub\modules\search\interfaces\Searchable;
 use humhub\modules\search\events\SearchAddEvent;
+use humhub\modules\search\jobs\DeleteDocument;
+use humhub\modules\search\jobs\UpdateDocument;
 use humhub\modules\space\behaviors\SpaceModelMembership;
 use humhub\modules\space\behaviors\SpaceController;
 use humhub\modules\user\behaviors\Followable;
@@ -117,12 +119,13 @@ class Space extends ContentContainerActiveRecord implements Searchable
             [['visibility'], 'in', 'range' => [0, 1, 2]],
             [['visibility'], 'checkVisibility'],
             [['url'], 'unique', 'skipOnEmpty' => 'true'],
-            [['guid', 'name', 'url'], 'string', 'max' => 45, 'min' => 2],
-            [['url'], UrlValidator::className()],
+            [['guid', 'name'], 'string', 'max' => 45, 'min' => 2],
+            [['url'], 'string', 'max' => Yii::$app->getModule('space')->maximumSpaceUrlLength, 'min' => Yii::$app->getModule('space')->minimumSpaceUrlLength],
+            [['url'], UrlValidator::class],
         ];
 
         if (Yii::$app->getModule('space')->useUniqueSpaceNames) {
-            $rules[] = [['name'], 'unique', 'targetClass' => self::className()];
+            $rules[] = [['name'], 'unique', 'targetClass' => static::class];
         }
 
         return $rules;
@@ -194,7 +197,10 @@ class Space extends ContentContainerActiveRecord implements Searchable
     {
         parent::afterSave($insert, $changedAttributes);
 
-        Yii::$app->search->update($this);
+        Yii::$app->queue->push(new UpdateDocument([
+            'activeRecordClass' => get_class($this),
+            'primaryKey' => $this->id
+        ]));
 
         $user = User::findOne(['id' => $this->created_by]);
 
@@ -254,7 +260,11 @@ class Space extends ContentContainerActiveRecord implements Searchable
             $this->moduleManager->disable($module);
         }
 
-        Yii::$app->search->delete($this);
+        Yii::$app->queue->push(new DeleteDocument([
+            'activeRecordClass' => get_class($this),
+            'primaryKey' => $this->id
+        ]));
+
 
         $this->getProfileImage()->delete();
         $this->getProfileBannerImage()->delete();
@@ -483,9 +493,20 @@ class Space extends ContentContainerActiveRecord implements Searchable
         return Wall::widget(['space' => $this]);
     }
 
+    /**
+     * Returns all Membership relations with status = STATUS_MEMBER.
+     *
+     * Be aware that this function will also include disabled users, in order to only include active and visible users use:
+     *
+     * ```
+     * Membership::getSpaceMembersQuery($this->space)->active()->visible()->count()
+     * ```
+     *
+     * @return \yii\db\ActiveQuery
+     */
     public function getMemberships()
     {
-        $query = $this->hasMany(Membership::className(), ['space_id' => 'id']);
+        $query = $this->hasMany(Membership::class, ['space_id' => 'id']);
         $query->andWhere(['space_membership.status' => Membership::STATUS_MEMBER]);
         $query->addOrderBy(['space_membership.group_id' => SORT_DESC]);
 
@@ -516,7 +537,7 @@ class Space extends ContentContainerActiveRecord implements Searchable
 
     public function getApplicants()
     {
-        $query = $this->hasMany(Membership::className(), ['space_id' => 'id']);
+        $query = $this->hasMany(Membership::class, ['space_id' => 'id']);
         $query->andWhere(['space_membership.status' => Membership::STATUS_APPLICANT]);
 
         return $query;

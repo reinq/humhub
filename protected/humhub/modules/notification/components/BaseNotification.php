@@ -8,21 +8,21 @@
 
 namespace humhub\modules\notification\components;
 
-use Yii;
-use yii\helpers\Url;
-use yii\helpers\ArrayHelper;
-use yii\bootstrap\Html;
-use yii\db\Expression;
-use yii\db\ActiveQuery;
-use yii\base\InvalidConfigException;
-use yii\mail\MessageInterface;
 use humhub\components\SocialActivity;
-use humhub\modules\notification\models\Notification;
-use humhub\modules\notification\jobs\SendNotification;
 use humhub\modules\notification\jobs\SendBulkNotification;
-use humhub\modules\user\models\User;
+use humhub\modules\notification\jobs\SendNotification;
+use humhub\modules\notification\models\Notification;
 use humhub\modules\notification\targets\BaseTarget;
 use humhub\modules\notification\targets\WebTarget;
+use humhub\modules\user\components\ActiveQueryUser;
+use humhub\modules\user\models\User;
+use Yii;
+use yii\base\InvalidConfigException;
+use yii\bootstrap\Html;
+use yii\db\Expression;
+use yii\helpers\ArrayHelper;
+use yii\helpers\Url;
+use yii\mail\MessageInterface;
 
 /**
  * A BaseNotification class describes the behaviour and the type of a Notification.
@@ -30,7 +30,7 @@ use humhub\modules\notification\targets\WebTarget;
  *
  * The BaseNotification can should be created like this:
  *
- * MyNotification::instance()->from($originator)->about($source)->sendBulk($userList);
+ * MyNotification::instance()->from($originator)->about($source)->sendBulk($activeQueryUser);
  *
  * This will send Notifications to different notification targets by using a queue.
  *
@@ -141,26 +141,32 @@ abstract class BaseNotification extends SocialActivity
     /**
      * Sends this notification to a set of users.
      *
-     * This function will filter out duplicates and the originator itself if given in the
-     * $users array.
+     * Note: For compatibility reasons this method also allows to pass an array of user objects.
+     * This support will removed in future versions.
      *
-     * @param mixed $users can be an array of User records or an ActiveQuery.
+     * @param ActiveQueryUser $query the user query
      */
-    public function sendBulk($users)
+    public function sendBulk($query)
     {
         if (empty($this->moduleId)) {
-            throw new InvalidConfigException('No moduleId given for "' . $this->className() . '"');
+            throw new InvalidConfigException('No moduleId given for "' . get_class($this) . '"');
         }
 
-        if ($users instanceof ActiveQuery) {
-            $users = $users->all();
+        if (!$query instanceof ActiveQueryUser) {
+            /** @var array $query */
+            Yii::debug('BaseNotification::sendBulk - pass ActiveQueryUser instead of array!', 'notification');
+
+            // Migrate given array to ActiveQueryUser
+            $query = User::find()->where(['IN', 'user.id', array_map(function ($user) {
+                if ($user instanceof User) {
+                    return $user->id;
+                }
+                // User id
+                return $user;
+            }, $query)]);
         }
 
-        try {
-            Yii::$app->queue->push(new SendBulkNotification(['notification' => $this, 'recepients' => $users]));
-        } catch (\Exception $e) {
-            Yii::error($e);
-        }
+        Yii::$app->queue->push(new SendBulkNotification(['notification' => $this, 'query' => $query]));
     }
 
     /**
@@ -172,18 +178,14 @@ abstract class BaseNotification extends SocialActivity
     public function send(User $user)
     {
         if (empty($this->moduleId)) {
-            throw new InvalidConfigException('No moduleId given for "' . $this->className() . '"');
+            throw new InvalidConfigException('No moduleId given for "' . get_class($this) . '"');
         }
 
         if ($this->isOriginator($user)) {
             return;
         }
 
-        try {
-            Yii::$app->queue->push(new SendNotification(['notification' => $this, 'recepient' => $user]));
-        } catch (\Exception $e) {
-            Yii::error($e);
-        }
+        Yii::$app->queue->push(new SendNotification(['notification' => $this, 'recipientId' => $user->id]));
     }
 
     /**
@@ -216,6 +218,10 @@ abstract class BaseNotification extends SocialActivity
      */
     public function saveRecord(User $user)
     {
+        if (!$this->validate()) {
+            return false;
+        }
+
         $notification = new Notification([
             'user_id' => $user->id,
             'class' => static::class,
@@ -238,9 +244,12 @@ abstract class BaseNotification extends SocialActivity
                 static::class . ' ' .
                 print_r($notification->getErrors(), true)
             );
+            return false;
         }
 
         $this->record = $notification;
+
+        return true;
     }
 
     /**
@@ -317,10 +326,11 @@ abstract class BaseNotification extends SocialActivity
 
         // Automatically mark similar notifications (same source) as seen
         $similarNotifications = Notification::find()
-                ->where(['source_class' => $this->record->source_class, 'source_pk' => $this->record->source_pk, 'user_id' => $this->record->user_id])
-                ->andWhere(['!=', 'seen', '1']);
+            ->where(['source_class' => $this->record->source_class, 'source_pk' => $this->record->source_pk, 'user_id' => $this->record->user_id])
+            ->andWhere(['!=', 'seen', '1']);
         foreach ($similarNotifications->all() as $notification) {
-            $notification->getClass()->markAsSeen();
+            /* @var $notification Notification */
+            $notification->getBaseModel()->markAsSeen();
         }
     }
 
@@ -341,7 +351,7 @@ abstract class BaseNotification extends SocialActivity
      * Renders the Notificaiton for the given notification target.
      * Subclasses are able to use custom renderer for different targets by overwriting this function.
      *
-     * @param NotificationTarger $target
+     * @param BaseTarget $target
      * @return string render result
      */
     public function render(BaseTarget $target = null)
@@ -366,16 +376,16 @@ abstract class BaseNotification extends SocialActivity
         if ($this->groupCount > 2) {
             list($user) = $this->getGroupLastUsers(1);
             return Yii::t('NotificationModule.base', '{displayName} and {number} others', [
-                        'displayName' => Html::tag('strong', Html::encode($user->displayName)),
-                        'number' => $this->groupCount - 1
+                'displayName' => Html::tag('strong', Html::encode($user->displayName)),
+                'number' => $this->groupCount - 1
             ]);
         }
 
         list($user1, $user2) = $this->getGroupLastUsers(2);
 
         return Yii::t('NotificationModule.base', '{displayName} and {displayName2}', [
-                    'displayName' => Html::tag('strong', Html::encode($user1->displayName)),
-                    'displayName2' => Html::tag('strong', Html::encode($user2->displayName)),
+            'displayName' => Html::tag('strong', Html::encode($user1->displayName)),
+            'displayName2' => Html::tag('strong', Html::encode($user2->displayName)),
         ]);
     }
 
@@ -390,16 +400,16 @@ abstract class BaseNotification extends SocialActivity
         $users = [];
 
         $query = Notification::find()
-                ->where([
-                    'notification.user_id' => $this->record->user_id,
-                    'notification.class' => $this->record->class,
-                    'notification.group_key' => $this->record->group_key
-                ])
-                ->joinWith(['originator', 'originator.profile'])
-                ->orderBy(['notification.created_at' => SORT_DESC])
-                ->groupBy(['notification.originator_user_id'])
-                ->andWhere(['IS NOT', 'user.id', new Expression('NULL')])
-                ->limit($limit);
+            ->where([
+                'notification.user_id' => $this->record->user_id,
+                'notification.class' => $this->record->class,
+                'notification.group_key' => $this->record->group_key
+            ])
+            ->joinWith(['originator', 'originator.profile'])
+            ->orderBy(['notification.created_at' => SORT_DESC])
+            ->groupBy(['notification.originator_user_id'])
+            ->andWhere(['IS NOT', 'user.id', new Expression('NULL')])
+            ->limit($limit);
 
         foreach ($query->all() as $notification) {
             $users[] = $notification->originator;

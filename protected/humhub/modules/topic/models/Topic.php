@@ -8,11 +8,12 @@
 
 namespace humhub\modules\topic\models;
 
-use Yii;
+use humhub\modules\content\interfaces\ContentOwner;
 use humhub\modules\stream\helpers\StreamHelper;
 use humhub\modules\content\models\Content;
 use humhub\modules\topic\permissions\AddTopic;
 use humhub\modules\content\models\ContentTag;
+use Yii;
 
 /**
  * ContentTag type used for categorizing content.
@@ -56,8 +57,10 @@ class Topic extends ContentTag
      * @param Content $content target content
      * @param int[]|int|Topic|Topic[] $topics either a single or array of topics or topic Ids to add.
      */
-    public static function attach(Content $content, $topics)
+    public static function attach(ContentOwner $contentOwner, $topics)
     {
+        $content = $contentOwner->getContent();
+
         /* @var $result static[] */
         $result = [];
 
@@ -66,7 +69,7 @@ class Topic extends ContentTag
 
         $canAdd = $content->container->can(AddTopic::class);
 
-        if(empty($topics)) {
+        if (empty($topics)) {
             return;
         }
 
@@ -79,16 +82,16 @@ class Topic extends ContentTag
                     'contentcontainer_id' => $content->contentcontainer_id
                 ]);
 
-                if($newTopic->save()) {
+                if ($newTopic->save()) {
                     $result[] = $newTopic;
                 }
 
-            } elseif(is_numeric($topic)) {
+            } elseif (is_numeric($topic)) {
                 $topic = Topic::findOne((int) $topic);
-                if($topic) {
+                if ($topic) {
                     $result[] = $topic;
                 }
-            } elseif($topic instanceof Topic) {
+            } elseif ($topic instanceof Topic) {
                 $result[] = $topic;
             }
         }

@@ -18,7 +18,9 @@
  */
 return [
     'Archived' => '',
-    'Name' => '',
+    'Name' => 'Наименование',
+    'User invitations have been added to the queue' => '',
+    'User memberships have been added to the queue' => '',
     '{count} members' => '',
     '<strong>Space</strong> followers' => 'Подписчики <strong>пространства</strong>',
     'Administrator:' => 'Администратор:',

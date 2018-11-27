@@ -1,7 +1,7 @@
 <?php
 
 use humhub\widgets\GridView;
-use humhub\widgets\ActiveForm;
+use yii\bootstrap\ActiveForm;
 use humhub\modules\space\models\Space;
 use humhub\modules\space\modules\manage\widgets\MemberMenu;
 use humhub\modules\user\grid\ImageColumn;
@@ -9,6 +9,8 @@ use humhub\modules\user\grid\DisplayNameColumn;
 use humhub\modules\space\modules\manage\models\MembershipSearch;
 use humhub\widgets\TimeAgo;
 use yii\helpers\Html;
+
+/* @var $space Space */
 ?>
 
 <div class="panel panel-default">
@@ -26,7 +28,7 @@ use yii\helpers\Html;
                     <span class="input-group-btn">
                         <button class="btn btn-default" type="submit"><i class="fa fa-search"></i></button>
                     </span>
-                </div>     
+                </div>
             </div>
             <div class="col-md-4">
                 <?= Html::activeDropDownList($searchModel, 'group_id', MembershipSearch::getRoles($space), ['class' => 'form-control', 'onchange' => 'this.form.submit()']); ?>
@@ -55,7 +57,7 @@ use yii\helpers\Html;
                                 return Yii::t('SpaceModule.views_admin_members', '-');
                             }
 
-                            return TimeAgo::widget(['timestamp' => $data->last_visit]);
+                            return TimeAgo::widget(['timestamp' => $data->created_at]);
                         }
                     ],
                     [
@@ -98,10 +100,12 @@ use yii\helpers\Html;
                             'update' => function ($url, $model) {
                                 return false;
                             },
-                            'delete' => function ($url, $model) {
-                                return Html::a('<i class="fa fa-times"></i>', '#', [
+                            'delete' => function ($url, $model) use($space) {
+                                $url = ['/space/manage/member/remove', 'userGuid' => $model->user->guid, 'container' => $space];
+                                return Html::a('<i class="fa fa-times"></i>', $url, [
                                             'title' => Yii::t('SpaceModule.manage', 'Remove from space'),
                                             'class' => 'btn btn-danger btn-xs tt',
+                                            'data-method' => 'POST',
                                             'data-confirm' => 'Are you really sure?'
                                 ]);
                             }

@@ -26,18 +26,26 @@ class UserActionColumn extends ActionColumn
      */
     protected function renderDataCellContent($model, $key, $index)
     {
+        /** @var User $model */
+
         $actions = [];
         if ($model->status == User::STATUS_SOFT_DELETED) {
             $actions[Yii::t('AdminModule.user', 'Permanently delete')] = ['delete'];
         } else {
             $actions[Yii::t('base', 'Edit')] = ['edit'];
-            $actions[] = '---';
-            if ($model->status == User::STATUS_DISABLED) {
-                $actions[Yii::t('AdminModule.user', 'Enable')] = ['enable', 'linkOptions' => ['data-method' => 'post', 'data-confirm' => Yii::t('AdminModule.user', 'Are you really sure that you want to enable this user?')]];
-            } elseif ($model->status == User::STATUS_ENABLED) {
-                $actions[Yii::t('AdminModule.user', 'Disable')] = ['disable', 'linkOptions' => ['data-method' => 'post', 'data-confirm' => Yii::t('AdminModule.user', 'Are you really sure that you want to disable this user?')]];
+
+            if(Yii::$app->user->isAdmin() || !$model->isSystemAdmin()) {
+                $actions[] = '---';
+                if ($model->status == User::STATUS_DISABLED) {
+                    $actions[Yii::t('AdminModule.user', 'Enable')] = ['enable', 'linkOptions' => ['data-method' => 'post', 'data-confirm' => Yii::t('AdminModule.user', 'Are you really sure that you want to enable this user?')]];
+                } elseif ($model->status == User::STATUS_ENABLED) {
+                    $actions[Yii::t('AdminModule.user', 'Disable')] = ['disable', 'linkOptions' => ['data-method' => 'post', 'data-confirm' => Yii::t('AdminModule.user', 'Are you really sure that you want to disable this user?')]];
+                }
+                if (!$model->isCurrentUser()) {
+                    $actions[Yii::t('base', 'Delete')] = ['delete'];
+                }
             }
-            $actions[Yii::t('base', 'Delete')] = ['delete'];
+
 
             if ($model->status == User::STATUS_ENABLED) {
                 $actions[] = '---';

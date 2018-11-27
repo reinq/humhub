@@ -41,7 +41,7 @@ class MailSummaryProcessor
             if ($interactive) {
                 Console::startProgress($processed, $totalUsers, 'Sending daily e-mail summary to users... ', false);
             }
-        } elseif ($interval === MailSummary::INTERVAL_HOURY) {
+        } elseif ($interval === MailSummary::INTERVAL_HOURLY) {
             if ($interactive) {
                 Console::startProgress($processed, $totalUsers, 'Sending hourly e-mail summary to users... ', false);
             }
@@ -59,7 +59,7 @@ class MailSummaryProcessor
             try {
                 if (self::checkUser($user, $interval)) {
                     $mailSummary = Yii::createObject([
-                                'class' => MailSummary::className(),
+                                'class' => MailSummary::class,
                                 'user' => $user,
                                 'interval' => $interval
                     ]);

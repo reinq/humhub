@@ -9,15 +9,15 @@
 namespace humhub\modules\ui\filter\widgets;
 
 use humhub\widgets\JsWidget;
-use yii\base\InvalidParamException;
+use yii\base\InvalidArgumentException;
 
 /**
- * This widget is used to render the filter navigation of a stream and is mainly used within [[StreamViewer]] widgets.
+ * This widget is used to render the filter navigation of a filter component.
  *
- * A StreamFilterNavigation groups stream filter into panels and blocks whereas a stream filter block is part of a
- * stream filter panel and can contain multiple filter.
+ * A FilterNavigation groups filters into panels and blocks whereas a filter block is part of a
+ * filter panel and can contain multiple filter.
  *
- * Subclasses should initialize the default filter state by within the [[initFilterPanels()]], [[initFilterBlocks()]] and
+ * Subclasses should initialize the default filter state within the [[initFilterPanels()]], [[initFilterBlocks()]] and
  * [[initFilters()]] functions.
  *
  * The default view expects the following format for the different components:
@@ -203,7 +203,7 @@ abstract class FilterNavigation extends JsWidget
     public function addFilter($filter, $blockId = null)
     {
         if(!isset($filter['id'])) {
-            throw new InvalidParamException('Filter without filter id given!');
+            throw new InvalidArgumentException('Filter without filter id given!');
         }
 
         if (isset($this->filters[$filter['id']]) || !$this->isAllowedFilter($filter['id'])) {
@@ -231,7 +231,7 @@ abstract class FilterNavigation extends JsWidget
             $blockId = $this->defaultBlock;
         }
 
-        if ($this->filterBlocks[$blockId]) {
+        if (isset($this->filterBlocks[$blockId])) {
             $this->filterBlocks[$blockId]['filters'] = isset($this->filterBlocks[$blockId]['filters']) ? $this->filterBlocks[$blockId]['filters'] : [];
             $this->filterBlocks[$blockId]['filters'][] = $filter;
         }

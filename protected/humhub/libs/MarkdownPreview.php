@@ -8,17 +8,32 @@
 
 namespace humhub\libs;
 
+use cebe\markdown\block\CodeTrait;
+use cebe\markdown\block\HeadlineTrait;
+use cebe\markdown\Parser;
+
 /**
  * MarkdownPreview generates a plain text (no HTML) of markdown.
  * Some elements like images or links will be displayed more clearly.
  *
  * @since 0.11.1
  */
-class MarkdownPreview extends \cebe\markdown\Parser
+class MarkdownPreview extends Parser
 {
+    use HeadlineTrait;
+
     protected function renderParagraph($block)
     {
         return $this->renderAbsy($block['content']) . "\n";
+    }
+
+
+    /**
+     * Renders a headline
+     */
+    protected function renderHeadline($block)
+    {
+        return $this->renderAbsy($block['content']) ."\n";
     }
 
     /**
@@ -130,7 +145,17 @@ REGEXP;
 
     protected function renderLink($block)
     {
-        return "[" . $block['url'] . "]";
+        $result = '';
+
+        if (isset($block['text']) && isset($block['text'][0]) && isset($block['text'][0][1])) {
+            $result = $block['text'][0][1];
+        }
+
+        if (!empty($result) && isset($block['url']) && strrpos($block['url'], 'mention:') === 0) {
+            $result = '@'.$result;
+        }
+
+        return $result;
     }
 
     protected function renderImage($block)

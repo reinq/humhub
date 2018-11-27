@@ -52,7 +52,7 @@ humhub.module('ui.additions', function (module, require, $) {
         var $element = (element instanceof $) ? element : $(element);
         $.each(_additions, function (id) {
             // Only apply certain filter if filter option is set
-            if (options.filter && !options.filter.indexOf(id)) {
+            if (options.filter && options.filter.indexOf(id) < 0) {
                 return;
             }
 
@@ -133,6 +133,14 @@ humhub.module('ui.additions', function (module, require, $) {
 
         module.register('select2', '[data-ui-select2]', function ($match) {
             $match.select2({theme: "humhub"});
+        });
+
+        module.register('highlightCode', 'pre code', function($match) {
+            $match.each(function (i, e) {
+                if(window.hljs) {
+                    hljs.highlightBlock(e);
+                }
+            });
         });
 
         // Show tooltips on elements
@@ -239,7 +247,7 @@ humhub.module('ui.additions', function (module, require, $) {
         var observer = new MutationObserver(function (mutations) {
             mutations.forEach(function (mutation) {
                 var $nodes = $(mutation.addedNodes).filter(function () {
-                    return this.nodeType === 1; // filter out text nodes
+                    return this.nodeType === 1 && !$(this).closest('.humhub-ui-richtext').length; // filter out text nodes and ignore richtext changes
                 });
 
                 $nodes.each(function () {

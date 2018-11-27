@@ -8,6 +8,7 @@
 
 namespace humhub\modules\content\widgets\richtext;
 
+use humhub\libs\EmojiMap;
 use humhub\libs\Helpers;
 use humhub\libs\Markdown;
 use humhub\libs\ParameterEvent;
@@ -154,7 +155,7 @@ class ProsemirrorRichText extends AbstractRichText
             }
         }
 
-        $this->text = static::parseMentionings($this->text, $this->edit);
+        $this->text = $this->parseOutput();
 
         if ($this->maxLength > 0) {
             $this->text = Helpers::truncateText($this->text, $this->maxLength);
@@ -169,12 +170,35 @@ class ProsemirrorRichText extends AbstractRichText
     }
 
     /**
+     * @since v1.3.2
+     */
+    protected function parseOutput()
+    {
+        return static::parseMentionings($this->text, $this->edit);
+    }
+
+    /**
      * @return string truncated and stripped text
      */
     protected function renderMinimal() {
         $parser = new Markdown();
         $result = strip_tags($parser->parse($this->text));
+        $result = $this->toUTF8Emoji($result);
         return ($this->maxLength > 0) ? Helpers::truncateText($result, $this->maxLength) : $result;
+    }
+
+    protected function toUTF8Emoji($text)
+    {
+        // Note the ; was used in the legacy editor
+        return preg_replace_callback('/[:|;](([A-Za-z0-9])+)[:|;]/', function($match)  {
+            $result =  $match[0];
+
+            if(isset($match[1])) {
+                $result = array_key_exists(strtolower($match[1]), EmojiMap::MAP) ?  EmojiMap::MAP[strtolower($match[1])] : $result;
+            }
+
+            return $result;
+        }, $text);
     }
 
     /**
@@ -206,18 +230,22 @@ class ProsemirrorRichText extends AbstractRichText
 
             if(!$contentContainer || !$contentContainer->getPolymorphicRelation()) {
                 // If no user or space was found we leave out the url in the non edit mode.
-                return $edit ?  '['.Html::encode($match[1]).'](mention:'.$match[3].' "'.$match[4].'")' : $notFoundResult;
+                return $edit ?  '['.$match[1].'](mention:'.$match[3].' "'.$match[4].'")' : $notFoundResult;
             }
 
             $container = $contentContainer->getPolymorphicRelation();
 
             if($container instanceof User) {
                 return $container->isActive()
-                    ?  '['.Html::encode($container->getDisplayName()).'](mention:'.$container->guid.' "'.$container->getUrl().'")'
+                    ?  '['.$container->getDisplayName().'](mention:'.$container->guid.' "'.$container->getUrl().'")'
                     : $notFoundResult;
-            } elseif($container instanceof Space) {
-                return '['.Html::encode($container->name).'](mention:'.$container->guid.' "'.$container->getUrl().'")';
             }
+
+            if($container instanceof Space) {
+                return '['.$container->name.'](mention:'.$container->guid.' "'.$container->getUrl().'")';
+            }
+
+            return '';
         });
     }
 

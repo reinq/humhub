@@ -15,6 +15,8 @@ use humhub\modules\content\components\behaviors\SettingsBehavior;
 use humhub\modules\content\components\behaviors\CompatModuleManager;
 use humhub\modules\content\models\Content;
 use humhub\modules\friendship\models\Friendship;
+use humhub\modules\search\jobs\DeleteDocument;
+use humhub\modules\search\jobs\UpdateDocument;
 use humhub\modules\space\models\Space;
 use humhub\modules\space\helpers\MembershipHelper;
 use humhub\modules\user\behaviors\ProfileController;
@@ -51,6 +53,8 @@ use yii\base\Exception;
  * @property integer $visibility
  * @property integer $contentcontainer_id
  * @property Profile $profile
+ *
+ * @property string $displayName
  */
 class User extends ContentContainerActiveRecord implements IdentityInterface, Searchable
 {
@@ -131,7 +135,7 @@ class User extends ContentContainerActiveRecord implements IdentityInterface, Se
             [['status', 'visibility'], 'integer'],
             [['tags'], 'string'],
             [['guid'], 'string', 'max' => 45],
-            [['username'], 'string', 'max' => 50, 'min' => $userModule->minimumUsernameLength],
+            [['username'], 'string', 'max' => $userModule->maximumUsernameLength, 'min' => $userModule->minimumUsernameLength],
             [['time_zone'], 'in', 'range' => \DateTimeZone::listIdentifiers()],
             [['auth_mode'], 'string', 'max' => 10],
             [['language'], 'string', 'max' => 5],
@@ -240,7 +244,7 @@ class User extends ContentContainerActiveRecord implements IdentityInterface, Se
 
     public static function findIdentity($id)
     {
-        return static::findOne($id);
+        return static::findOne(['id' => $id]);
     }
 
     public static function findIdentityByAccessToken($token, $type = null)
@@ -255,7 +259,7 @@ class User extends ContentContainerActiveRecord implements IdentityInterface, Se
      */
     public static function find()
     {
-        return Yii::createObject(ActiveQueryUser::className(), [get_called_class()]);
+        return Yii::createObject(ActiveQueryUser::class, [get_called_class()]);
     }
 
     public function getId()
@@ -275,12 +279,12 @@ class User extends ContentContainerActiveRecord implements IdentityInterface, Se
 
     public function getCurrentPassword()
     {
-        return $this->hasOne(Password::className(), ['user_id' => 'id'])->orderBy('created_at DESC');
+        return $this->hasOne(Password::class, ['user_id' => 'id'])->orderBy('created_at DESC');
     }
 
     public function getProfile()
     {
-        return $this->hasOne(Profile::className(), ['user_id' => 'id']);
+        return $this->hasOne(Profile::class, ['user_id' => 'id']);
     }
 
     /**
@@ -289,7 +293,7 @@ class User extends ContentContainerActiveRecord implements IdentityInterface, Se
      */
     public function getGroupUsers()
     {
-        return $this->hasMany(GroupUser::className(), ['user_id' => 'id']);
+        return $this->hasMany(GroupUser::class, ['user_id' => 'id']);
     }
 
     /**
@@ -298,7 +302,7 @@ class User extends ContentContainerActiveRecord implements IdentityInterface, Se
      */
     public function getGroups()
     {
-        return $this->hasMany(Group::className(), ['id' => 'group_id'])->via('groupUsers');
+        return $this->hasMany(Group::class, ['id' => 'group_id'])->via('groupUsers');
     }
 
     /**
@@ -325,7 +329,7 @@ class User extends ContentContainerActiveRecord implements IdentityInterface, Se
      */
     public function getManagerGroups()
     {
-        return $this->hasMany(Group::className(), ['id' => 'group_id'])
+        return $this->hasMany(Group::class, ['id' => 'group_id'])
             ->via('groupUsers', function($query) {
                     $query->andWhere(['is_group_manager' => '1']);
             });
@@ -408,12 +412,16 @@ class User extends ContentContainerActiveRecord implements IdentityInterface, Se
         foreach ($this->moduleManager->getEnabled() as $module) {
             $this->moduleManager->disable($module);
         }
-        Yii::$app->search->delete($this);
+
+        Yii::$app->queue->push(new DeleteDocument([
+            'activeRecordClass' => get_class($this),
+            'primaryKey' => $this->id
+        ]));
 
         // Cleanup related tables
         Invite::deleteAll(['user_originator_id' => $this->id]);
         Follow::deleteAll(['user_id' => $this->id]);
-        Follow::deleteAll(['object_model' => $this->className(), 'object_id' => $this->id]);
+        Follow::deleteAll(['object_model' => static::class, 'object_id' => $this->id]);
         Password::deleteAll(['user_id' => $this->id]);
         GroupUser::deleteAll(['user_id' => $this->id]);
         Session::deleteAll(['user_id' => $this->id]);
@@ -470,9 +478,15 @@ class User extends ContentContainerActiveRecord implements IdentityInterface, Se
         $user = User::findOne(['id' => $this->id]);
 
         if ($user->isVisible()) {
-            Yii::$app->search->update($user);
+            Yii::$app->queue->push(new UpdateDocument([
+                'activeRecordClass' => get_class($this),
+                'primaryKey' => $this->id
+            ]));
         } else {
-            Yii::$app->search->delete($user);
+            Yii::$app->queue->push(new DeleteDocument([
+                'activeRecordClass' => get_class($this),
+                'primaryKey' => $this->id
+            ]));
         }
 
         if ($insert) {
@@ -529,12 +543,14 @@ class User extends ContentContainerActiveRecord implements IdentityInterface, Se
 
         $format = Yii::$app->settings->get('displayNameFormat');
 
-        if ($this->profile !== null && $format == '{profile.firstname} {profile.lastname}')
+        if ($this->profile !== null && $format == '{profile.firstname} {profile.lastname}') {
             $name = $this->profile->firstname . ' ' . $this->profile->lastname;
+        }
 
         // Return always username as fallback
-        if ($name == '' || $name == ' ')
+        if ($name == '' || $name == ' ') {
             return $this->username;
+        }
 
         return $name;
     }
@@ -665,7 +681,7 @@ class User extends ContentContainerActiveRecord implements IdentityInterface, Se
     {
 
         // TODO: SHOW ONLY REAL MEMBERSHIPS
-        return $this->hasMany(Space::className(), ['id' => 'space_id'])
+        return $this->hasMany(Space::class, ['id' => 'space_id'])
                         ->viaTable('space_membership', ['user_id' => 'id']);
     }
 
@@ -674,7 +690,7 @@ class User extends ContentContainerActiveRecord implements IdentityInterface, Se
      */
     public function getHttpSessions()
     {
-        return $this->hasMany(Session::className(), ['user_id' => 'id']);
+        return $this->hasMany(Session::class, ['user_id' => 'id']);
     }
 
     /**
@@ -696,7 +712,7 @@ class User extends ContentContainerActiveRecord implements IdentityInterface, Se
      */
     public function getAuths()
     {
-        return $this->hasMany(Auth::className(), ['user_id' => 'id']);
+        return $this->hasMany(Auth::class, ['user_id' => 'id']);
     }
 
     /**
